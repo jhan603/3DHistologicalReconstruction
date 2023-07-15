@@ -697,7 +697,7 @@ def UNETMaker(IMAGE_SIZE, noClasses, Trainable = False, Weights = 'imagenet', To
 
         x = last(x)
 
-        return Model(inputs=inputs, outputs=x)
+        return Model(inputs=ptm.input, outputs=x)
 
     model = unet_model(noClasses)
     
@@ -772,13 +772,18 @@ def segment(imgPath, model, sectL, sc):
 
 if __name__ == "__main__":
 
-    src = '/Volumes/USB/H653A_11.3/'
-    size = 3
-    dataHome = src + str(size) + "/"
+    # Original Code to get directory, but using at home I will copy the folder
+    #src = '/Volumes/USB/H653A_11.3/' 
+    #size = 3
+    #dataHome = src + str(size) + "/"
+
+    src = "D:\Part4\\700AB"
+    size = 4
+    dataHome = src + str(size) + "\\"
 
     # directory which contains the sections
-    featDir = dataHome + 'FeatureSections/'
-    imgDirs = featDir + 'NLAlignedSamplesSmallpng_False/'
+    featDir = dataHome + 'FeatureSections\\'
+    imgDirs = featDir + 'NLAlignedSamplesSmall\\'
 
     # three classes (myometrium, decidua, villous)
     # Just change what classes you want here
@@ -817,7 +822,7 @@ if __name__ == "__main__":
     '''
 
     # segment the final reconstructions
-    imgssrc = sorted(glob(dataHome + '/NLAlignedSamplesSmall/*'))
+    imgssrc = sorted(glob(dataHome + '\\NLAlignedSamplesSmall\\*'))
     
     # segment the image
     sectL = 136     # this is the x-y dimension of the patches

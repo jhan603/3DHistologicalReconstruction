@@ -1,4 +1,4 @@
-from .PR_SegmentLoad import SegLoad
+#from .PR_SegmentLoad import SegLoad
 from .PR_WSILoad import WSILoad
 from .SP_AlignSamples import align
 from .SP_FeatureFinder import featFind
