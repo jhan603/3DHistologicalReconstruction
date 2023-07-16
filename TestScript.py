@@ -261,7 +261,7 @@ def remove_all_black(image_paths, mask_paths, split_images, split_masks):
 
 split_img_paths, split_mask_paths, split_images, split_masks = remove_all_black(split_img_path, split_mask_path, split_images, split_masks)
 
-print(split_img_paths)
+#print(split_img_paths)
 print(len(split_img_paths))
 print(len(split_mask_paths))
 print(len(split_masks))
@@ -296,6 +296,27 @@ print(len(split_masks))
 
 # Firstly split the dataset into training and test set
 # Rule of thumb a good split is 70 to 30
+# Splitting Data into Training and Validation
 
+def Split_Data(split_images, split_masks) :
+    train_Image, val_Image,train_Mask, val_Mask = train_test_split(split_images, split_masks, test_size=0.3, 
+                                                      random_state=512163833
+                                                     )
+    # develop tf Dataset objects
+    train_X = tf.data.Dataset.from_tensor_slices(train_Image)
+    val_X = tf.data.Dataset.from_tensor_slices(val_Image)
+
+    train_y = tf.data.Dataset.from_tensor_slices(train_Mask)
+    val_y = tf.data.Dataset.from_tensor_slices(val_Mask)
+
+    # verify the shapes and data types
+    train_X.element_spec, train_y.element_spec, val_X.element_spec, val_y.element_spec
+
+    # zip images and masks
+    train = tf.data.Dataset.zip((train_X, train_y))
+    val = tf.data.Dataset.zip((val_X, val_y))
+    return train, val
+
+train_img_masks, val_img_masks = Split_Data(split_images, split_masks)
 # Images_train, Images_test, Masks_train, Masks_test = train_test_split(images, masks, test_size=0.3, random_state=512163833)
 print("hi")
