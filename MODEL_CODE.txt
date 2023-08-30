@@ -1,0 +1,206 @@
+def denseLayer(ptmoutput, noClasses):
+
+    # creates the dense layer
+    # Inputs:   (ptmoutput), takes the CNN output layer
+    #           (noClasses), number of classifiers to train
+    # Outputs:  (x), constructed dense layer
+
+    # create the dense layer
+    x = Flatten()(ptmoutput)   
+    x = Dropout(0.2)(x)        
+    x = Dense(noClasses, activation='softmax')(x)
+
+    return(x)
+
+def fineTuning(ptm, layerNo, structure = 'block'):
+
+    '''
+    Specify the blocks to be trainable
+        Inputs:\n
+    (ptm), model
+    (layerNo), the number of layers to modify. Starts with the blocks the closest to the output.
+        if the input is False then nothing will be trained. If True then the WHOLE model will 
+        be trainiable. If an integer number is specified then than number structures will be trained
+    (structure), what structure is being specified, defaults block
+
+        Outputs:\n
+    (ptm), same network but with the trainiable parameter modified as necessary
+    '''
+
+    # if the number of layers is 0 then set the whole thing to being untrainable
+    if layerNo == 0:
+        ptm.trainable = False
+        return ptm
+
+    ptm.trainable = layerNo
+    # if a specificed number of layers selected then state their trainability
+    if type(layerNo)==int:
+        blocks = sorted(list(np.unique(np.array([p.name.split("_")[0] for p in ptm.layers]))))
+        blocksCopy = blocks.copy()
+        for b in blocksCopy:
+            if b.find(structure)==-1:
+                blocks.remove(b)
+                
+        # select the highest block numbers first
+        tarB = blocks[-layerNo:]
+        for p in ptm.layers:
+            # if the selected layers aren't matched then it is not being trained
+            for t in tarB:
+                if p.name.find(t)!=-1:
+                    print(p.name + " trainable")
+                    p.trainable = True
+
+    return(ptm)
+def VGG16Maker(IMAGE_SIZE, noClasses, layerNo = 0, Weights = 'imagenet', Top = False):
+
+    # create a model with the VGG19 topology
+    # Inputs:   (IMAGE_SIZE), size of the inputs
+    #           (noClasses), number of classes the network will identify
+    #           (Trainable), boolean whether the CNN component will be trainiable, defaults False
+    #           (Weights), the pre-loaded weights that can be used, defaults to imagenet
+    #           (Top), the dense layer which comes with the model, defaults to not being included
+    # Outputs:  (model), compiled model
+
+    # load the VGG16 and necessary layers from keras 
+    from keras.applications import VGG16 as PretrainedModel
+    from keras.applications.vgg16 import preprocess_input
+    
+
+    # load the pretrained model and specify the weights being used
+    ptm = PretrainedModel(
+        input_shape=IMAGE_SIZE,  
+        weights=Weights,         
+        include_top=Top)     
+
+    # ---- Fine tuning ---
+    # get the name of all the blocks
+    ptm = fineTuning(ptm, layerNo)
+                            
+    # create the dense layer. This is always trainable
+    x = denseLayer(ptm.output, noClasses)
+            
+    # combine the convolutional imagenet pretrained model with the denselayer
+    model = Model(inputs=ptm.input, outputs=x)  
+    
+    # bolt the whole thing together, aka compile it
+    model.compile(
+        loss='SparseCategoricalCrossentropy',  # Use categorical cross-entropy for per-pixel values
+        optimizer='adam',
+        metrics=['accuracy'])
+
+
+    # set the pre-processing function as the inbuilt vgg19 function
+    preprocessingFunc = preprocess_input
+
+    return(model, preprocessingFunc)
+
+
+#CustomImageDataGenerator
+
+import cv2
+import numpy as np
+import os
+import random # import shuffle, random
+
+def train_generator(img_dir, label_dir, batch_size):
+    list_images = os.listdir(img_dir+ "\\Image")
+    list_masks = os.listdir(label_dir+ "\\Mask")
+    random.seed(1)
+    random.shuffle(list_images)
+    random.shuffle(list_masks)
+
+    ids_train_split = list(range(len(list_images)))  # Create a list of indices
+    random.shuffle(ids_train_split)  # Shuffle the indices
+    while True:
+         for start in range(0, len(ids_train_split), batch_size):
+            x_batch = []
+            y_batch = []
+            end = min(start + batch_size, len(ids_train_split))
+            ids_train_batch = ids_train_split[start:end]
+            for id in ids_train_batch:
+                img = cv2.imread(os.path.join(img_dir + "\\Image", list_images[id]))
+                mask = cv2.imread(os.path.join(label_dir + "\\Mask", list_masks[id]), cv2.IMREAD_GRAYSCALE)
+                
+                # Randomly decide whether to flip horizontally or not
+                if random.random() < 0.5:
+                    img = cv2.flip(img, 1)
+                    mask = cv2.flip(mask, 1)
+                
+                x_batch.append(img)
+                y_batch.append(mask)
+
+            x_batch = np.array(x_batch, np.float32)
+            y_batch = np.array(y_batch, np.float32)
+            
+            yield x_batch, y_batch
+
+
+def valid_generator(img_dir, label_dir, batch_size):
+    random.seed(1)
+    list_images = os.listdir(img_dir + "\\Image")
+    list_masks = os.listdir(label_dir+ "\\Mask")
+    random.shuffle(list_images)
+    random.shuffle(list_masks)
+    ids_valid_split = list(range(len(list_images)))  # Create a list of indices
+    random.shuffle(ids_valid_split)  # Shuffle the indices
+    while True:
+         for start in range(0, len(ids_valid_split), batch_size):
+            x_batch = []
+            y_batch = []
+            end = min(start + batch_size, len(ids_valid_split))
+            ids_train_batch = ids_valid_split[start:end]
+            for id in ids_train_batch:
+                img = cv2.imread(os.path.join(img_dir + "\\Image", list_images[id]))
+                mask = cv2.imread(os.path.join(label_dir + "\\Mask", list_masks[id]), cv2.IMREAD_GRAYSCALE)
+                
+                x_batch.append(img)
+                y_batch.append(mask)
+
+            x_batch = np.array(x_batch, np.float32)
+            y_batch = np.array(y_batch, np.float32)
+
+            yield x_batch, y_batch
+
+
+def TrainModel(src, modelName, layerNo = 0, epochs = 10, batch_size = 64, name = ""):
+    print("start, MODEL = " + modelName)
+    src = "D:\\Part4\\700AB\\3DHistologicalReconstruction\\H653A_11.3"
+
+    TrainImgDir = src + "\\Train_Image"
+    TrainMaskDir = src + "\\Train_Mask"
+
+    ValImgDir = src + "\\Val_Image"
+    ValMaskDir = src + "\\Val_Mask"
+
+    trainImagesPaths = glob(TrainImgDir + "*\\Image\\*")
+    trainMasksPaths = glob(TrainMaskDir + "*\\Mask\\*")
+
+    valImagesPaths = glob(ValImgDir + "*\\Image\\*")
+    valMasksPaths = glob(ValMaskDir + "*\\Mask\\*")
+
+    IMAGE_SIZE = cv2.imread(trainImagesPaths[0]).shape
+    num_classes = 5
+
+    model, preproFunc = VGG16Maker(IMAGE_SIZE, 5, layerNo = 0, Weights = 'imagenet', Top = False)
+    
+    # Define your custom generator
+    train_gen = train_generator(TrainImgDir, TrainMaskDir, batch_size)
+    valid_gen = valid_generator(ValImgDir, ValMaskDir, batch_size)
+
+    # Train the model
+    # Train the model
+    # Use the valid_generator with model.fit for validation
+    history = model.fit(
+        x=train_gen,  # Use the training generator as input
+        epochs= 10,  # Number of training epochs
+        validation_data=valid_gen,  # Use the validation generator
+        verbose=1  # Set verbosity level
+
+)
+
+
+    # Save the model
+    model.save(name + 'saved_model')
+
+    print("Done")
+    #train_img_paths, train_mask_paths, val_img_paths, val_mask_paths, test_img_paths, test_mask_paths = Split_data(split_img_paths, split_mask_paths, split_images, split_masks)

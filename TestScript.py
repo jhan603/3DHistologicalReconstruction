@@ -1,17 +1,19 @@
 import numpy as np
 import pandas as pd
 import os
-import PIL
+import cv2
 import PIL.Image as Image
 import tensorflow as tf
-import pathlib
 import matplotlib.pyplot as plt
-import cv2
 import matplotlib as mpl
 from sklearn.model_selection import train_test_split
 from glob import glob
+import random
+from keras.models import Model
+from keras.layers import Flatten, Dropout, Dense
+from keras.preprocessing.image import ImageDataGenerator
 
-Working_Directory = "D:\\Part4\\700AB\\H653A_11.3" # When working at home
+Working_Directory = "D:\\Part4\\700AB\\3DHistologicalReconstruction\\H653A_11.3" # When working at home
 #Working_Directory = " "                            # Root directory when working at university
 Image_directory = Working_Directory + '\\Images'
 os.makedirs(Image_directory, exist_ok=True)
@@ -43,7 +45,7 @@ def Img_Mask_Paths(Image_directory, Masks_directory, Has_Manual_Labels):
     for root, dirs, files in os.walk(Image_directory):
         # iterate over images
         for file in files:
-            if file.find(".png") != -1:
+            if (file.find(".png") != -1) & (file[0] == "H"):
                 # create path
                 path = os.path.join(root,file)
                 # add path to list if it is one of the images we are using
@@ -68,15 +70,6 @@ def Img_Mask_Paths(Image_directory, Masks_directory, Has_Manual_Labels):
 
     return image_path, mask_path
 
-image_path, mask_path = Img_Mask_Paths(Image_directory, Masks_directory, Has_Manual_Labels)
-
-# To Do: Split images, masks
-# 1. Inputs are the image and mask paths (done)
-# 2. Split the images and masks up but how i split an image i must split it up the same way with the masks
-# 3. I need to name those images in a sensible and correct manner to understand. Eg: What Mask and perhaps what Index of split it is?
-# idk that wording doesn't make sense but i get it. 
-# Outputs: New Image, Mask Paths of split images
-
 def Split_Imgs_Masks(image_path, mask_path):
     # Define the maximum size for the sub-images
     # max_sub_size = 200  # Adjust this value if required
@@ -88,6 +81,7 @@ def Split_Imgs_Masks(image_path, mask_path):
     Split_Mask_folder = Working_Directory +  "\\Split_Masks"
     os.makedirs(Split_Mask_folder, exist_ok=True)
 
+    # paths = []
     for image, mask in zip(image_path, mask_path):
         image = Image.open(image)
         width, height = image.size
@@ -98,7 +92,7 @@ def Split_Imgs_Masks(image_path, mask_path):
         #print(width, height, "meowers")
 
         # Calculate the number of rows and columns in the grid
-        num_rows = height // int(118) # 2006 divisible by 118 17 rows
+        num_rows = height // int(118) # 2006 divisible by 118 17 columns    
         #print(num_rows)
         num_cols = width //  int(178) # 1424 divisible by 178 8 rows
         #print(num_cols)
@@ -127,19 +121,22 @@ def Split_Imgs_Masks(image_path, mask_path):
                 original_mask_name = os.path.splitext(os.path.basename(mask.filename))[0]
 
                 # Generate the new file name for the sub-image
-                sub_image_file_name = f"{original_image_name}_sub_image_{row}_{col}.png"
-                sub_mask_file_name = f"{original_mask_name}_sub_mask_{row}_{col}.png"
+                #sub_image_file_name = f"{original_image_name}_sub_image_{row}_{col}.png"
+                #sub_mask_file_name = f"{original_mask_name}_sub_mask_{row}_{col}.png"
+                sub_image_file_name = f"{original_image_name}_sub_image_{row:02d}_{col:02d}.png"
+                sub_mask_file_name = f"{original_mask_name}_sub_mask_{row:02d}_{col:02d}.png"
 
                 # Save the sub-image in the destination folder
                 sub_image.save(os.path.join(Split_Image_folder, sub_image_file_name))
                 sub_mask.save(os.path.join(Split_Mask_folder, sub_mask_file_name))
-        
+                # Append the image and mask paths as a pair to the list
+                
+                #paths.append((os.path.join(Split_Image_folder, sub_image_file_name), os.path.join(Split_Mask_folder, sub_mask_file_name)))  
     split_img_path, split_mask_path = Img_Mask_Paths(Split_Image_folder, Split_Mask_folder, Has_Manual_Labels)
-
+    #split_img_path, split_mask_path = zip(*paths)
     return split_img_path, split_mask_path
     
-split_img_path, split_mask_path = Split_Imgs_Masks(image_path, mask_path)
-#print(split_img_path, split_mask_path)
+
 
 def Decode_PNG_to_tensor(image_path, mask_path):
     """
@@ -185,7 +182,6 @@ def Decode_PNG_to_tensor(image_path, mask_path):
 
     return images, masks
 
-split_images, split_masks = Decode_PNG_to_tensor(split_img_path, split_mask_path)
 
 def View_Image_Mask(split_images, split_masks, pic_num, split_img_path, split_mask_path):
     """
@@ -229,7 +225,7 @@ def View_Image_Mask(split_images, split_masks, pic_num, split_img_path, split_ma
     except:
         print("SubImage / Sub Mask not found")
 
-View_Image_Mask(split_images, split_masks, pic_num=12, split_img_path = split_img_path, split_mask_path =  split_mask_path)
+
 
 def is_image_all_black(image_path):
     # Open the image
@@ -259,64 +255,174 @@ def remove_all_black(image_paths, mask_paths, split_images, split_masks):
     
     return image_paths, mask_paths, split_images, split_masks
 
-split_img_paths, split_mask_paths, split_images, split_masks = remove_all_black(split_img_path, split_mask_path, split_images, split_masks)
+def No_Black_Split(split_img_paths, split_mask_paths):
+    # Define the maximum size for the sub-images
+    # max_sub_size = 200  # Adjust this value if required
+    # Made it not be in the loop anymore
+    No_Black_Split_Image_folder = Working_Directory + "\\No_Black_Images"
+    os.makedirs(No_Black_Split_Image_folder, exist_ok=True)
+    
+    # Create the destination folder if it doesn't exist
+    No_Black_Split_Mask_folder = Working_Directory +  "\\No_Black_Masks"
+    os.makedirs(No_Black_Split_Mask_folder, exist_ok=True)
 
-#print(split_img_paths)
-print(len(split_img_paths))
-print(len(split_mask_paths))
-print(len(split_masks))
+    # paths = []
+    for sub_image_path, sub_mask_path in zip(split_img_paths, split_mask_paths):
+        sub_image = Image.open(sub_image_path)
+        sub_mask = Image.open(sub_mask_path)
 
-# 15th 16th July
-# Changed the size of sub image and masks so that theyre size are whole values and no pixels are missed out
-# Got rid of images and masks with corresponding tensors
+        image_filename = os.path.basename(sub_image_path)
+        mask_filename = os.path.basename(sub_mask_path)
 
-# # Clearly its not plotting the mask wrong
-        # Possible Reasons?
-        # 1. the way im plotting is wrong? can't be cus if u view the tensor of an image its just all 0 values meaning all black
-        # 2. The way im decoding the image is probably the reason why?
-        # 3. Need to work on aligning the image and mask? Look closely at the example its not perfectly aligned? Try fix my splitting images method?
-        # 4. Ask about uint8 and uint16 stuff
-        # Questions to ask Alys
-        # Will the person listening/marking be knowledgeable will we need to explain myo decid etc? just explain wat we hve done so far?
-        # Good engineering knowledge and general biological knowledge, suggest couple of slides of the big picture problems and couple of slides 
-        # little bit of anatomy, type of image processing image segemntation, focus on what my approach is, plans for remaining time. 
-        # mid-year report, what should i include? is it individual report?
-        # Show her my code and ask if my splits are fine?
-        # when i view imgs using fiji why do u htink my masks are sometimes grey?
-        # why does a mask look entirely black but when i view it in fiji it shows the mask fine? is it cus it lost its pixel labels? 
-        # Only selecting subimages, with one type of tissue, figure out how to get rid of images and corresponding masks that have no information. 
-        # Comments
-        # Images weren't created in the same place, different types of origins?
-        # Adjust spacing between subplots
-        # image and a mask, blocks of tissues of 1 type of tissue.
+        # Save the sub-image in the destination folder
+        sub_image.save(os.path.join(No_Black_Split_Image_folder, image_filename))
+        sub_mask.save(os.path.join(No_Black_Split_Mask_folder, mask_filename))
 
-# 1. Figure out why image and masks aren't aligning. By trying different separating, maybe add up images together STILL FIGURING OUT!
-# 2. Figure out how to get rid of masks that provide no information DONE!
-# 3. What about labels for images, 
+    image_paths = [file for file in os.listdir(No_Black_Split_Image_folder) if os.path.isfile(os.path.join(No_Black_Split_Image_folder, file))]
+    image_paths.sort()
+    mask_paths  = [file for file in os.listdir(No_Black_Split_Mask_folder) if os.path.isfile(os.path.join(No_Black_Split_Mask_folder, file))]
+    mask_paths.sort()
+    print("hi")
+    return image_paths, mask_paths
 
-# Firstly split the dataset into training and test set
-# Rule of thumb a good split is 70 to 30
-# Splitting Data into Training and Validation
+def Split_Data(split_img_paths, split_mask_paths):
+    num_samples = len(split_img_paths)
+    indices = np.arange(num_samples)
+    
+    # Shuffle the indices
+    seed = 512163833
+    np.random.seed(seed)
+    np.random.shuffle(indices)
 
-def Split_Data(split_images, split_masks) :
-    train_Image, val_Image,train_Mask, val_Mask = train_test_split(split_images, split_masks, test_size=0.3, 
-                                                      random_state=512163833
-                                                     )
-    # develop tf Dataset objects
-    train_X = tf.data.Dataset.from_tensor_slices(train_Image)
-    val_X = tf.data.Dataset.from_tensor_slices(val_Image)
+    train_images = []
+    train_masks = []
+    val_images = []
+    val_masks = []
+    test_images = []
+    test_masks = []
 
-    train_y = tf.data.Dataset.from_tensor_slices(train_Mask)
-    val_y = tf.data.Dataset.from_tensor_slices(val_Mask)
+    # Split the indices
+    # Approx 70 15 15 split
+    train_split = int(0.7 * num_samples)
+    val_split = int(0.15 * num_samples)
+    
+    train_indices = indices[:train_split]
+    val_indices = indices[train_split:(train_split + val_split)]
+    test_indices = indices[(train_split + val_split):] 
+    
+    split_img_paths = np.array(split_img_paths)
+    split_mask_paths = np.array(split_mask_paths)
+    
+    # Define folders for train, val, and test
+    train_folder = Working_Directory + "\\Train"
+    val_folder = Working_Directory + "\\Val"
+    test_folder = Working_Directory + "\\Test"
+    
+    os.makedirs(train_folder, exist_ok=True)
+    os.makedirs(val_folder, exist_ok=True)
+    os.makedirs(test_folder, exist_ok=True)
+    
+    # Define subfolders for images and masks within each train, val, and test folder
+    train_img_folder = os.path.join(train_folder, "Image")
+    train_mask_folder = os.path.join(train_folder, "Mask")
+    val_img_folder = os.path.join(val_folder, "Image")
+    val_mask_folder = os.path.join(val_folder, "Mask")
+    test_img_folder = os.path.join(test_folder, "Image")
+    test_mask_folder = os.path.join(test_folder, "Mask")
+    
+    os.makedirs(train_img_folder, exist_ok=True)
+    os.makedirs(train_mask_folder, exist_ok=True)
+    os.makedirs(val_img_folder, exist_ok=True)
+    os.makedirs(val_mask_folder, exist_ok=True)
+    os.makedirs(test_img_folder, exist_ok=True)
+    os.makedirs(test_mask_folder, exist_ok=True)
+    
+    # Use the split indices to get the data
+    train_img_paths = split_img_paths[train_indices]
+    train_mask_paths = split_mask_paths[train_indices]
+    
+    val_img_paths = split_img_paths[val_indices]
+    val_mask_paths = split_mask_paths[val_indices]
+    
+    test_img_paths = split_img_paths[test_indices]
+    test_mask_paths = split_mask_paths[test_indices]
 
-    # verify the shapes and data types
-    train_X.element_spec, train_y.element_spec, val_X.element_spec, val_y.element_spec
+    # Loop through data and save to corresponding folders
+    for img_path, mask_path in zip(train_img_paths, train_mask_paths):
+        img = Image.open(img_path)
+        mask = Image.open(mask_path)
 
-    # zip images and masks
-    train = tf.data.Dataset.zip((train_X, train_y))
-    val = tf.data.Dataset.zip((val_X, val_y))
-    return train, val
+        img_name = os.path.basename(img_path)
+        mask_name = os.path.basename(mask_path)
 
-train_img_masks, val_img_masks = Split_Data(split_images, split_masks)
-# Images_train, Images_test, Masks_train, Masks_test = train_test_split(images, masks, test_size=0.3, random_state=512163833)
-print("hi")
+        img.save(os.path.join(train_img_folder, img_name))
+        mask.save(os.path.join(train_mask_folder, mask_name))
+
+        img_array = np.array(img)
+        mask_array = np.array(mask)
+        
+        train_images.append(img_array)
+        train_masks.append(mask_array)
+
+    for img_path, mask_path in zip(val_img_paths, val_mask_paths):
+        img = Image.open(img_path)
+        mask = Image.open(mask_path)
+
+        img_name = os.path.basename(img_path)
+        mask_name = os.path.basename(mask_path)
+
+        img.save(os.path.join(val_img_folder, img_name))
+        mask.save(os.path.join(val_mask_folder, mask_name))
+
+        img_array = np.array(img)
+        mask_array = np.array(mask)
+        
+        val_images.append(img_array)
+        val_masks.append(mask_array)
+
+    for img_path, mask_path in zip(test_img_paths, test_mask_paths):
+        img = Image.open(img_path)
+        mask = Image.open(mask_path)
+
+        img_name = os.path.basename(img_path)
+        mask_name = os.path.basename(mask_path)
+
+        img.save(os.path.join(test_img_folder, img_name))
+        mask.save(os.path.join(test_mask_folder, mask_name))
+
+        img_array = np.array(img)
+        mask_array = np.array(mask)
+        
+        test_images.append(img_array)
+        test_masks.append(mask_array)
+
+    # Convert lists to numpy arrays
+    train_images = np.array(train_images)
+    train_masks = np.array(train_masks)
+    val_images = np.array(val_images)
+    val_masks = np.array(val_masks)
+    test_images = np.array(test_images)
+    test_masks = np.array(test_masks)
+    
+    return train_images, train_masks, val_images, val_masks, test_images, test_masks
+
+
+
+if __name__ == "__main__":
+    image_path, mask_path = Img_Mask_Paths(Image_directory, Masks_directory, Has_Manual_Labels)
+
+    split_img_path, split_mask_path = Split_Imgs_Masks(image_path, mask_path)
+
+    split_images, split_masks = Decode_PNG_to_tensor(split_img_path, split_mask_path)
+
+    # View_Image_Mask(split_images, split_masks, pic_num=12, split_img_path = split_img_path, split_mask_path =  split_mask_path)
+
+    split_img_paths, split_mask_paths, split_images, split_masks = remove_all_black(split_img_path, split_mask_path, split_images, split_masks)
+
+    sub_image_paths, sub_mask_paths = No_Black_Split(split_img_paths, split_mask_paths)
+
+    #train_img_path, train_mask_path, val_img_path, val_mask_path, test_img_path, test_mask_path = Split_data(split_img_paths, split_mask_paths, split_images, split_masks)
+    train_images, train_masks, val_images, val_masks, test_images, test_masks = Split_Data(split_img_paths, split_mask_paths)
+
+    # TrainModel(Working_Directory, "VGG16", layerNo = 1, epochs = 10, batch_size = 64, name = "VGG16")
+    print("hello")
